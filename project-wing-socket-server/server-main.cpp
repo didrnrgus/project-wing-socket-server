@@ -178,13 +178,26 @@ void clientThread(Client* client)
 		case ClientMessage::Type::MSG_START:
 			if (client->id == gRoomOwner)
 			{
-				gState = RUNNING;
-				for (auto& c : gClients) c->isAlive = true;
-				gDeadPlayers.clear();
-				const char* msg = "Game Started!";
-				broadcast(client->id, (int)ServerMessage::Type::MSG_START_ACK, msg, strlen(msg) + 1);
+				bool allReady = std::all_of(gClients.begin(), gClients.end(), [](Client* c) {
+					return (c->id == gRoomOwner) || c->isReady; // 방장은 레디 상태 체크 제외
+					});
+
+				if (allReady)
+				{
+					gState = RUNNING;
+					for (auto& c : gClients) c->isAlive = true;
+					gDeadPlayers.clear();
+					const char* msg = "Game Started!";
+					broadcast(client->id, (int)ServerMessage::Type::MSG_START_ACK, msg, strlen(msg) + 1);
+				}
+				else
+				{
+					const char* errorMsg = "Not all players are ready.";
+					sendMessage(client->sock, client->id, (int)ServerMessage::Type::MSG_START_ACK, errorMsg, strlen(errorMsg) + 1);
+				}
 			}
 			break;
+
 		case ClientMessage::Type::MSG_READY:
 			client->isReady = true;
 			broadcast(client->id, (int)ServerMessage::Type::MSG_READY, nullptr, 0);
