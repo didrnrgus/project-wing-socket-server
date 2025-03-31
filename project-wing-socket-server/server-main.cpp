@@ -95,19 +95,22 @@ LARGE_INTEGER mSecond = {}, mTime = {};
 float mDeltaTime = 0.f, mFPS = 0.f, mFPSTime = 0.f;
 int mFPSTick = 0;
 
-void InitTimer() {
+void InitTimer()
+{
 	QueryPerformanceFrequency(&mSecond);
 	QueryPerformanceCounter(&mTime);
 }
 
-float UpdateTimer() {
+float UpdateTimer()
+{
 	LARGE_INTEGER Time;
 	QueryPerformanceCounter(&Time);
 	mDeltaTime = (Time.QuadPart - mTime.QuadPart) / (float)mSecond.QuadPart;
 	mTime = Time;
 	mFPSTime += mDeltaTime;
 	++mFPSTick;
-	if (mFPSTick == 60) {
+	if (mFPSTick == 60)
+	{
 		mFPS = mFPSTick / mFPSTime;
 		mFPSTick = 0;
 		mFPSTime = 0.f;
@@ -117,9 +120,11 @@ float UpdateTimer() {
 
 float GetDeltaTimeFromTimer() { return mDeltaTime; }
 
-bool sendAll(SOCKET sock, const char* data, int len) {
+bool sendAll(SOCKET sock, const char* data, int len)
+{
 	int sent = 0;
-	while (sent < len) {
+	while (sent < len)
+	{
 		int r = send(sock, data + sent, len - sent, 0);
 		if (r == SOCKET_ERROR) return false;
 		sent += r;
@@ -127,30 +132,35 @@ bool sendAll(SOCKET sock, const char* data, int len) {
 	return true;
 }
 
-bool sendMessage(SOCKET sock, int senderId, int msgType, const void* body, int bodyLen) {
+bool sendMessage(SOCKET sock, int senderId, int msgType, const void* body, int bodyLen)
+{
 	MessageHeader header{ senderId, msgType, bodyLen };
 	if (!sendAll(sock, (char*)&header, sizeof(header))) return false;
 	if (body && bodyLen > 0) return sendAll(sock, (char*)body, bodyLen);
 	return true;
 }
 
-void broadcast(int senderId, int msgType, const void* data, int len) {
+void broadcast(int senderId, int msgType, const void* data, int len)
+{
 	for (auto& c : gClients)
 		sendMessage(c->sock, senderId, msgType, data, len);
 }
 
-void checkGameOver() {
+void checkGameOver()
+{
 	int aliveCount = 0;
 	for (auto& c : gClients)
 		if (c->isAlive) aliveCount++;
-	if (aliveCount == 0) {
+	if (aliveCount == 0)
+	{
 		gState = WAITING;
 		const char* msg = "All players dead. Game over.";
 		broadcast(0, (int)ServerMessage::MSG_GAME_OVER, msg, strlen(msg) + 1);
 	}
 }
 
-void sendRoomFullInfo(Client* client) {
+void sendRoomFullInfo(Client* client)
+{
 	int playerCount = (int)gClients.size();
 	int totalSize = sizeof(int) * 2 + sizeof(int) + playerCount * (sizeof(int) + sizeof(bool) + sizeof(int) * 3);
 	std::vector<char> buffer(totalSize);
@@ -158,7 +168,8 @@ void sendRoomFullInfo(Client* client) {
 	memcpy(ptr, &gRoomOwner, sizeof(int)); ptr += sizeof(int);
 	memcpy(ptr, &gMapId, sizeof(int)); ptr += sizeof(int);
 	memcpy(ptr, &playerCount, sizeof(int)); ptr += sizeof(int);
-	for (auto& c : gClients) {
+	for (auto& c : gClients)
+	{
 		memcpy(ptr, &c->id, sizeof(int)); ptr += sizeof(int);
 		memcpy(ptr, &c->isReady, sizeof(bool)); ptr += sizeof(bool);
 		memcpy(ptr, c->itemSlots, sizeof(int) * 3); ptr += sizeof(int) * 3;
@@ -166,9 +177,11 @@ void sendRoomFullInfo(Client* client) {
 	sendMessage(client->sock, 0, (int)ServerMessage::MSG_ROOM_FULL_INFO, buffer.data(), totalSize);
 }
 
-bool recvAll(SOCKET sock, char* buffer, int len) {
+bool recvAll(SOCKET sock, char* buffer, int len)
+{
 	int recvd = 0;
-	while (recvd < len) {
+	while (recvd < len)
+	{
 		int r = recv(sock, buffer + recvd, len - recvd, 0);
 		if (r <= 0) return false;
 		recvd += r;
@@ -176,16 +189,19 @@ bool recvAll(SOCKET sock, char* buffer, int len) {
 	return true;
 }
 
-bool receiveMessage(SOCKET sock, MessageHeader& header, std::vector<char>& body) {
+bool receiveMessage(SOCKET sock, MessageHeader& header, std::vector<char>& body)
+{
 	if (!recvAll(sock, (char*)&header, sizeof(header))) return false;
 	body.resize(header.bodyLen);
 	if (header.bodyLen > 0) return recvAll(sock, body.data(), header.bodyLen);
 	return true;
 }
 
-void distanceUpdateLoop() {
+void distanceUpdateLoop()
+{
 	InitTimer();
-	while (true) {
+	while (true)
+	{
 		Sleep(1);
 		std::lock_guard<std::recursive_mutex> lock(gMutex);
 		if (gState != RUNNING) continue;
@@ -193,20 +209,22 @@ void distanceUpdateLoop() {
 		float dt = GetDeltaTimeFromTimer();
 		const float speed = 100.0f;
 		const float hpDecayRate = 10.0f;
-		for (auto& c : gClients) {
+		for (auto& c : gClients)
+		{
 			if (!c->isAlive) continue;
 			c->distance += speed * dt;
 			c->hp -= hpDecayRate * dt;
-			if (c->hp <= 0.0f) {
+			if (c->hp <= 0.0f)
+			{
 				c->hp = 0.0f;
 				c->isAlive = false;
 				gDeadPlayers.insert(c->id);
-				broadcast(c->id, (int)ServerMessage::Type::MSG_PLAYER_DEAD, nullptr, 0);
+				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
 				checkGameOver();
 				continue;
 			}
 			struct { int id; float dist; } packet{ c->id, c->distance };
-			broadcast(c->id, (int)ServerMessage::Type::MSG_PLAYER_DISTANCE, &packet, sizeof(packet));
+			broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &packet, sizeof(packet));
 		}
 	}
 }
@@ -227,15 +245,20 @@ void clientThread(Client* client)
 		case ClientMessage::MSG_START:
 			if (client->id == gRoomOwner)
 			{
-				bool allReady = std::all_of(gClients.begin(), gClients.end(), [](Client* c) {
-					return (c->id == gRoomOwner) || c->isReady; // 방장은 레디 상태 체크 제외
+				bool allReady = std::all_of(gClients.begin(), gClients.end(), [](Client* c)
+					{
+						return (c->id == gRoomOwner) || c->isReady;
 					});
-
 				if (allReady)
 				{
 					gState = RUNNING;
-					for (auto& c : gClients) c->isAlive = true;
 					gDeadPlayers.clear();
+					for (auto& c : gClients)
+					{
+						c->isAlive = true;
+						c->hp = 100.0f;
+						c->distance = 0.0f;
+					}
 					const char* msg = "Game Started!";
 					broadcast(client->id, (int)ServerMessage::MSG_START_ACK, msg, strlen(msg) + 1);
 				}
@@ -246,7 +269,6 @@ void clientThread(Client* client)
 				}
 			}
 			break;
-
 		case ClientMessage::MSG_READY:
 			client->isReady = true;
 			broadcast(client->id, (int)ServerMessage::MSG_READY, nullptr, 0);
@@ -291,11 +313,26 @@ void clientThread(Client* client)
 			gDeadPlayers.insert(client->id);
 			checkGameOver();
 			break;
+		case ClientMessage::MSG_TAKE_DAMAGE:
+			if (header.bodyLen == sizeof(float))
+			{
+				float dmg;
+				memcpy(&dmg, body.data(), sizeof(float));
+				client->hp -= dmg;
+				if (client->isAlive && client->hp <= 0.0f)
+				{
+					client->hp = 0.0f;
+					client->isAlive = false;
+					gDeadPlayers.insert(client->id);
+					broadcast(client->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
+					checkGameOver();
+				}
+			}
+			break;
 		default:
 			break;
 		}
 	}
-
 	{
 		std::lock_guard<std::recursive_mutex> lock(gMutex);
 		auto it = std::find_if(gClients.begin(), gClients.end(), [client](Client* c) { return c->id == client->id; });
@@ -312,7 +349,6 @@ void clientThread(Client* client)
 			}
 		}
 	}
-
 	closesocket(client->sock);
 	delete client;
 }
@@ -321,6 +357,7 @@ int main()
 {
 	WSADATA wsa;
 	WSAStartup(MAKEWORD(2, 2), &wsa);
+	std::thread(distanceUpdateLoop).detach();
 	SOCKET server = socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
@@ -358,7 +395,6 @@ int main()
 		c->thread = std::thread(clientThread, c);
 		c->thread.detach();
 	}
-
 	closesocket(server);
 	WSACleanup();
 	return 0;
