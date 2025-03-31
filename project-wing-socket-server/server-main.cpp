@@ -19,7 +19,7 @@ enum GameState { WAITING, RUNNING };
 
 namespace ClientMessage
 {
-	enum class Type
+	enum Type
 	{
 		MSG_HEARTBEAT,
 		MSG_START,
@@ -36,14 +36,14 @@ namespace ClientMessage
 
 namespace ServerMessage
 {
-	enum class Type
+	enum Type
 	{
 		MSG_CONNECTED,
 		MSG_NEW_OWNER,
 		MSG_HEARTBEAT_ACK,
 		MSG_START_ACK,
 		MSG_JOIN,
-		MSG_DISCONNECT,
+		MSG_DISCONNECT, // 이건 누가 나간거.
 		MSG_CONNECTED_REJECT,
 		MSG_ROOM_FULL_INFO,
 		MSG_PICK_CHARACTER,
@@ -54,7 +54,8 @@ namespace ServerMessage
 		MSG_MOVE_UP,
 		MSG_MOVE_DOWN,
 		MSG_PLAYER_DEAD,
-		MSG_GAME_OVER
+		MSG_GAME_OVER,
+		MSG_END // 내가 끊긴거
 	};
 }
 
@@ -165,7 +166,7 @@ void checkGameOver()
 	{
 		gState = WAITING;
 		const char* msg = "All players dead. Game over.";
-		broadcast(0, (int)ServerMessage::Type::MSG_GAME_OVER, msg, strlen(msg) + 1);
+		broadcast(0, (int)ServerMessage::MSG_GAME_OVER, msg, strlen(msg) + 1);
 	}
 }
 
@@ -184,7 +185,7 @@ void sendRoomFullInfo(Client* client)
 		memcpy(ptr, &c->isReady, sizeof(bool)); ptr += sizeof(bool);
 		memcpy(ptr, c->itemSlots, sizeof(int) * 3); ptr += sizeof(int) * 3;
 	}
-	sendMessage(client->sock, 0, (int)ServerMessage::Type::MSG_ROOM_FULL_INFO, buffer.data(), totalSize);
+	sendMessage(client->sock, 0, (int)ServerMessage::MSG_ROOM_FULL_INFO, buffer.data(), totalSize);
 }
 
 bool recvAll(SOCKET sock, char* buffer, int len)
@@ -217,10 +218,10 @@ void clientThread(Client* client)
 		std::lock_guard<std::recursive_mutex> lock(gMutex);
 		switch ((ClientMessage::Type)header.msgType)
 		{
-		case ClientMessage::Type::MSG_HEARTBEAT:
-			sendMessage(client->sock, client->id, (int)ServerMessage::Type::MSG_HEARTBEAT_ACK, nullptr, 0);
+		case ClientMessage::MSG_HEARTBEAT:
+			sendMessage(client->sock, client->id, (int)ServerMessage::MSG_HEARTBEAT_ACK, nullptr, 0);
 			break;
-		case ClientMessage::Type::MSG_START:
+		case ClientMessage::MSG_START:
 			if (client->id == gRoomOwner)
 			{
 				bool allReady = std::all_of(gClients.begin(), gClients.end(), [](Client* c) {
@@ -233,57 +234,57 @@ void clientThread(Client* client)
 					for (auto& c : gClients) c->isAlive = true;
 					gDeadPlayers.clear();
 					const char* msg = "Game Started!";
-					broadcast(client->id, (int)ServerMessage::Type::MSG_START_ACK, msg, strlen(msg) + 1);
+					broadcast(client->id, (int)ServerMessage::MSG_START_ACK, msg, strlen(msg) + 1);
 				}
 				else
 				{
 					const char* errorMsg = "Not all players are ready.";
-					sendMessage(client->sock, client->id, (int)ServerMessage::Type::MSG_START_ACK, errorMsg, strlen(errorMsg) + 1);
+					sendMessage(client->sock, client->id, (int)ServerMessage::MSG_START_ACK, errorMsg, strlen(errorMsg) + 1);
 				}
 			}
 			break;
 
-		case ClientMessage::Type::MSG_READY:
+		case ClientMessage::MSG_READY:
 			client->isReady = true;
-			broadcast(client->id, (int)ServerMessage::Type::MSG_READY, nullptr, 0);
+			broadcast(client->id, (int)ServerMessage::MSG_READY, nullptr, 0);
 			break;
-		case ClientMessage::Type::MSG_UNREADY:
+		case ClientMessage::MSG_UNREADY:
 			client->isReady = false;
-			broadcast(client->id, (int)ServerMessage::Type::MSG_UNREADY, nullptr, 0);
+			broadcast(client->id, (int)ServerMessage::MSG_UNREADY, nullptr, 0);
 			break;
-		case ClientMessage::Type::MSG_PICK_CHARACTER:
+		case ClientMessage::MSG_PICK_CHARACTER:
 			if (header.bodyLen == sizeof(int))
 			{
 				memcpy(&client->characterId, body.data(), sizeof(int));
-				broadcast(client->id, (int)ServerMessage::Type::MSG_PICK_CHARACTER, body.data(), sizeof(int));
+				broadcast(client->id, (int)ServerMessage::MSG_PICK_CHARACTER, body.data(), sizeof(int));
 			}
 			break;
-		case ClientMessage::Type::MSG_PICK_ITEM:
+		case ClientMessage::MSG_PICK_ITEM:
 			if (header.bodyLen == sizeof(int) * 2)
 			{
 				int slot, itemId;
 				memcpy(&slot, body.data(), sizeof(int));
 				memcpy(&itemId, body.data() + sizeof(int), sizeof(int));
 				if (slot >= 0 && slot < 3) client->itemSlots[slot] = itemId;
-				broadcast(client->id, (int)ServerMessage::Type::MSG_PICK_ITEM, body.data(), sizeof(int) * 2);
+				broadcast(client->id, (int)ServerMessage::MSG_PICK_ITEM, body.data(), sizeof(int) * 2);
 			}
 			break;
-		case ClientMessage::Type::MSG_PICK_MAP:
+		case ClientMessage::MSG_PICK_MAP:
 			if (client->id == gRoomOwner && header.bodyLen == sizeof(int))
 			{
 				memcpy(&gMapId, body.data(), sizeof(int));
-				broadcast(0, (int)ServerMessage::Type::MSG_PICK_MAP, &gMapId, sizeof(int));
+				broadcast(0, (int)ServerMessage::MSG_PICK_MAP, &gMapId, sizeof(int));
 			}
 			break;
-		case ClientMessage::Type::MSG_MOVE_UP:
-			broadcast(client->id, (int)ServerMessage::Type::MSG_MOVE_UP, nullptr, 0);
+		case ClientMessage::MSG_MOVE_UP:
+			broadcast(client->id, (int)ServerMessage::MSG_MOVE_UP, nullptr, 0);
 			break;
-		case ClientMessage::Type::MSG_MOVE_DOWN:
-			broadcast(client->id, (int)ServerMessage::Type::MSG_MOVE_DOWN, nullptr, 0);
+		case ClientMessage::MSG_MOVE_DOWN:
+			broadcast(client->id, (int)ServerMessage::MSG_MOVE_DOWN, nullptr, 0);
 			break;
-		case ClientMessage::Type::MSG_PLAYER_DEAD:
+		case ClientMessage::MSG_PLAYER_DEAD:
 			client->isAlive = false;
-			broadcast(client->id, (int)ServerMessage::Type::MSG_PLAYER_DEAD, nullptr, 0);
+			broadcast(client->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
 			gDeadPlayers.insert(client->id);
 			checkGameOver();
 			break;
@@ -299,12 +300,12 @@ void clientThread(Client* client)
 		{
 			bool wasOwner = (client->id == gRoomOwner);
 			gClients.erase(it);
-			broadcast(client->id, (int)ServerMessage::Type::MSG_DISCONNECT, &client->id, sizeof(int));
+			broadcast(client->id, (int)ServerMessage::MSG_DISCONNECT, &client->id, sizeof(int));
 			if (gClients.empty()) gRoomOwner = -1;
 			else if (wasOwner)
 			{
 				gRoomOwner = gClients.front()->id;
-				broadcast(0, (int)ServerMessage::Type::MSG_NEW_OWNER, &gRoomOwner, sizeof(int));
+				broadcast(0, (int)ServerMessage::MSG_NEW_OWNER, &gRoomOwner, sizeof(int));
 			}
 		}
 	}
@@ -335,7 +336,7 @@ int main()
 		if ((int)gClients.size() >= MAX_PLAYERS)
 		{
 			const char* msg = "Room is full.";
-			sendMessage(clientSock, 0, (int)ServerMessage::Type::MSG_CONNECTED_REJECT, msg, strlen(msg) + 1);
+			sendMessage(clientSock, 0, (int)ServerMessage::MSG_CONNECTED_REJECT, msg, strlen(msg) + 1);
 			closesocket(clientSock);
 			continue;
 		}
@@ -344,12 +345,12 @@ int main()
 		c->id = gNextId++;
 		gClients.push_back(c);
 		if (gRoomOwner == -1) gRoomOwner = c->id;
-		sendMessage(clientSock, c->id, (int)ServerMessage::Type::MSG_CONNECTED, &c->id, sizeof(int));
+		sendMessage(clientSock, c->id, (int)ServerMessage::MSG_CONNECTED, &c->id, sizeof(int));
 		sendRoomFullInfo(c);
 		for (auto& other : gClients)
 		{
 			if (other->id != c->id)
-				sendMessage(other->sock, c->id, (int)ServerMessage::Type::MSG_JOIN, &c->id, sizeof(int));
+				sendMessage(other->sock, c->id, (int)ServerMessage::MSG_JOIN, &c->id, sizeof(int));
 		}
 		c->thread = std::thread(clientThread, c);
 		c->thread.detach();
