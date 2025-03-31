@@ -10,6 +10,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
+#include <Windows.h>
 
 #define PORT 12345
 #define MAX_PLAYERS 5
@@ -84,6 +85,50 @@ GameState gState = WAITING;
 int gNextId = 1;
 int gRoomOwner = -1;
 int gMapId = 0;
+
+// timer
+LARGE_INTEGER mSecond = {};
+LARGE_INTEGER mTime = {};
+float mDeltaTime = 0.f;
+float mFPS = 0.f;
+float mFPSTime = 0.f;
+int mFPSTick = 0;
+
+#pragma region Timer
+void InitTimer()
+{
+	QueryPerformanceFrequency(&mSecond);
+	QueryPerformanceCounter(&mTime);
+}
+
+float UpdateTimer()
+{
+	LARGE_INTEGER	Time;
+
+	QueryPerformanceCounter(&Time);
+
+	mDeltaTime = (Time.QuadPart - mTime.QuadPart) / (float)mSecond.QuadPart;
+
+	mTime = Time;
+
+	mFPSTime += mDeltaTime;
+	++mFPSTick;
+
+	if (mFPSTick == 60)
+	{
+		mFPS = mFPSTick / mFPSTime;
+		mFPSTick = 0;
+		mFPSTime = 0.f;
+	}
+
+	return mDeltaTime;
+}
+#pragma endregion
+
+float GetDeltaTimeFromTimer()
+{
+	return mDeltaTime;
+}
 
 bool sendAll(SOCKET sock, const char* data, int len)
 {
