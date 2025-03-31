@@ -1,16 +1,9 @@
-﻿// ✅ 완성된 서버 전체 코드: 거리 이동, HP 감소, 죽음 처리, 게임 오버 포함
-
-#include <iostream>
-#include <thread>
-#include <vector>
-#include <mutex>
-#include <string>
-#include <algorithm>
-#include <unordered_set>
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
-#include <Windows.h>
+﻿#pragma once
+#include "GameInfo.h"
+#include "Etc/JsonContainer.h"
+#include "Etc/CURL.h"
+#include "Etc/DataStorageManager.h"
+#include "Etc/JsonController.h"
 
 #define PORT 12345
 #define MAX_PLAYERS 5
@@ -57,6 +50,7 @@ namespace ServerMessage
 		MSG_PLAYER_DEAD,
 		MSG_GAME_OVER,
 		MSG_PLAYER_DISTANCE, // ✅ 거리 전송 메시지
+		MSG_TAKEN_DAMAGE,
 		MSG_END
 	};
 }
@@ -200,34 +194,56 @@ bool receiveMessage(SOCKET sock, MessageHeader& header, std::vector<char>& body)
 void distanceUpdateLoop()
 {
 	InitTimer();
+	float accumulated = 0.0f;
+	const float targetDelta = 1.0f / 60.0f; // 60 FPS 고정 간격
+
 	while (true)
 	{
-		Sleep(1);
+		Sleep(1); // CPU 점유율 조절용
 		std::lock_guard<std::recursive_mutex> lock(gMutex);
 		if (gState != RUNNING) continue;
-		UpdateTimer();
-		float dt = GetDeltaTimeFromTimer();
-		const float speed = 100.0f;
-		const float hpDecayRate = 10.0f;
-		for (auto& c : gClients)
+
+		float dt = UpdateTimer();
+		accumulated += dt;
+
+		while (accumulated >= targetDelta)
 		{
-			if (!c->isAlive) continue;
-			c->distance += speed * dt;
-			c->hp -= hpDecayRate * dt;
-			if (c->hp <= 0.0f)
+			accumulated -= targetDelta;
+
+			const float speed = 100.0f;
+			const float hpDecayRate = 10.0f;
+
+			for (auto& c : gClients)
 			{
-				c->hp = 0.0f;
-				c->isAlive = false;
-				gDeadPlayers.insert(c->id);
-				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
-				checkGameOver();
-				continue;
+				if (!c->isAlive) continue;
+
+				// 거리 & HP 갱신
+				c->distance += speed * targetDelta;
+				c->hp -= hpDecayRate * targetDelta;
+
+				// 사망 처리
+				if (c->hp <= 0.0f)
+				{
+					c->hp = 0.0f;
+					c->isAlive = false;
+					gDeadPlayers.insert(c->id);
+					broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
+					checkGameOver();
+					continue;
+				}
+
+				// 거리 브로드캐스트
+				struct { int id; float dist; } packetDist{ c->id, c->distance };
+				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &packetDist, sizeof(packetDist));
+
+				// HP 브로드캐스트
+				struct { int id; float hp; } packetHp{ c->id, c->hp };
+				broadcast(c->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &packetHp, sizeof(packetHp));
 			}
-			struct { int id; float dist; } packet{ c->id, c->distance };
-			broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &packet, sizeof(packet));
 		}
 	}
 }
+
 
 void clientThread(Client* client)
 {
@@ -319,6 +335,10 @@ void clientThread(Client* client)
 				float dmg;
 				memcpy(&dmg, body.data(), sizeof(float));
 				client->hp -= dmg;
+
+				struct { int id; float hp; } packetHp{ client->id, client->hp };
+				broadcast(client->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &packetHp, sizeof(packetHp));
+
 				if (client->isAlive && client->hp <= 0.0f)
 				{
 					client->hp = 0.0f;
@@ -353,8 +373,12 @@ void clientThread(Client* client)
 	delete client;
 }
 
+void LoadGameData();
+
 int main()
 {
+	LoadGameData();
+
 	WSADATA wsa;
 	WSAStartup(MAKEWORD(2, 2), &wsa);
 	std::thread(distanceUpdateLoop).detach();
@@ -398,4 +422,41 @@ int main()
 	closesocket(server);
 	WSACleanup();
 	return 0;
+}
+
+void LoadGameData()
+{
+	// config load
+	std::string webserverPath = WEBSERVER_PATH;
+	std::string path = webserverPath + CONFIG_PATH;
+	std::string configResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+	printf(("configResult: " + configResult).c_str());
+	CDataStorageManager::GetInst()->SetConfigData(configResult);
+
+	// characters load
+	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().CharacterFileName;
+	std::string charactersResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+	printf(("charactersResult: " + charactersResult).c_str());
+	CDataStorageManager::GetInst()->SetCharacterData(charactersResult);
+
+	// maps load
+	for (std::string mapFileName : CDataStorageManager::GetInst()->GetConfig().mapFileNameList)
+	{
+		path = webserverPath + mapFileName;
+		std::string mapResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+		printf(("mapResult: " + mapResult).c_str());
+		CDataStorageManager::GetInst()->SetMapData(mapResult);
+	}
+
+	// stat load
+	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().StatFileName;
+	std::string statsResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+	printf(("statsResult: " + statsResult).c_str());
+	CDataStorageManager::GetInst()->SetStatInfoData(charactersResult);
+
+	// item load
+	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().ItemFileName;
+	std::string itemResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+	printf(("itemResult: " + itemResult).c_str());
+	CDataStorageManager::GetInst()->SetItemInfoData(itemResult);
 }
