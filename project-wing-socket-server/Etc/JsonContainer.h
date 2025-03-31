@@ -156,6 +156,18 @@ struct FSpriteAtlasInfo
 	std::vector<FSpriteSheetInfo> Sprites;
 };
 
+namespace EStatInfo
+{
+	enum Type
+	{
+		HP = 0,
+		Speed,
+		Dex,
+		Def,
+		End
+	};
+}
+
 /*
 {
 	"stat_type_list": [

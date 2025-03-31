@@ -144,6 +144,7 @@
     <ClInclude Include="Etc\JsonContainer.h" />
     <ClInclude Include="Etc\JsonController.h" />
     <ClInclude Include="GameInfo.h" />
+    <ClInclude Include="Interface\IPlayerStatController.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -4,9 +4,15 @@
 #include "Etc/CURL.h"
 #include "Etc/DataStorageManager.h"
 #include "Etc/JsonController.h"
+#include "Interface/IPlayerStatController.h"
 
 #define PORT 12345
 #define MAX_PLAYERS 5
+#define SCREEN_WIDTH 1280.0f
+#define SCREEN_HEIGHT 720.0f
+
+// 높이 가운데서부터 시작 함.
+#define PLAYER_INIT_POS_HEIGHT 0.0f
 
 enum GameState { WAITING, RUNNING };
 
@@ -24,7 +30,7 @@ namespace ClientMessage
 		MSG_MOVE_UP,
 		MSG_MOVE_DOWN,
 		MSG_PLAYER_DEAD,
-		MSG_TAKE_DAMAGE // ✅ HP 감소 메시지
+		MSG_TAKE_DAMAGE // 맵에 박았을때의 트리거
 	};
 }
 
@@ -49,7 +55,7 @@ namespace ServerMessage
 		MSG_MOVE_DOWN,
 		MSG_PLAYER_DEAD,
 		MSG_GAME_OVER,
-		MSG_PLAYER_DISTANCE, // ✅ 거리 전송 메시지
+		MSG_PLAYER_DISTANCE, // 거리 전송 메시지
 		MSG_TAKEN_DAMAGE,
 		MSG_END
 	};
@@ -64,17 +70,18 @@ struct MessageHeader
 };
 #pragma pack(pop)
 
-struct Client
+struct Client : public IPlayerStatController
 {
 	SOCKET sock;
 	int id;
 	std::thread thread;
+
 	bool isReady = false;
 	bool isAlive = true;
+	bool isMovingUp = false;
+
 	int characterId = -1;
 	int itemSlots[3] = { -1, -1, -1 };
-	float hp = 100.0f; // ✅ 체력
-	float distance = 0.0f; // ✅ 이동 거리
 };
 
 std::recursive_mutex gMutex;
@@ -210,21 +217,40 @@ void distanceUpdateLoop()
 		{
 			accumulated -= targetDelta;
 
-			const float speed = 100.0f;
-			const float hpDecayRate = 10.0f;
-
 			for (auto& c : gClients)
 			{
 				if (!c->isAlive) continue;
 
+				if (c->GetIsProtection())
+				{
+					c->ReleaseProtection(targetDelta);
+					continue;
+				}
+
+				if (c->GetIsStun())
+				{
+					c->ReleaseStun(targetDelta);
+					continue;
+				}
+
 				// 거리 & HP 갱신
-				c->distance += speed * targetDelta;
-				c->hp -= hpDecayRate * targetDelta;
+				float speed = c->GetSpeed();
+				float boostMultiplyValue = c->GetBoostValue();
+				float speedPerFrame =
+					speed * targetDelta		// 1초에 얼마만큼 
+					* 0.01f					// 미터법
+					* boostMultiplyValue;	// 부스트 속도 곱계산. 
+				c->AddPlayDistance(speedPerFrame);
+
+#ifdef _DEBUG
+				c->DamagedPerDistance(targetDelta * 10.0f);
+#else
+				c->DamagedPerDistance(targetDelta);
+#endif // _DEBUG
 
 				// 사망 처리
-				if (c->hp <= 0.0f)
+				if (c->GetCurHP() <= 0.0f)
 				{
-					c->hp = 0.0f;
 					c->isAlive = false;
 					gDeadPlayers.insert(c->id);
 					broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
@@ -233,11 +259,11 @@ void distanceUpdateLoop()
 				}
 
 				// 거리 브로드캐스트
-				struct { int id; float dist; } packetDist{ c->id, c->distance };
+				struct { int id; float dist; } packetDist{ c->id, c->GetPlayDistance() };
 				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &packetDist, sizeof(packetDist));
 
 				// HP 브로드캐스트
-				struct { int id; float hp; } packetHp{ c->id, c->hp };
+				struct { int id; float hp; } packetHp{ c->id, c->GetCurHP() };
 				broadcast(c->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &packetHp, sizeof(packetHp));
 			}
 		}
@@ -272,8 +298,25 @@ void clientThread(Client* client)
 					for (auto& c : gClients)
 					{
 						c->isAlive = true;
-						c->hp = 100.0f;
-						c->distance = 0.0f;
+
+						// 스탯 계산해서 Init 하기.
+						// 테이블 읽어서 기본 스텟 초기화.
+						auto _statInfo = CDataStorageManager::GetInst()->GetCharacterState(c->characterId);
+						c->InitStat(_statInfo);
+
+						auto _itemDatas = CDataStorageManager::GetInst()->GetItemInfoDatas();
+						int _itemLength = sizeof(c->itemSlots) / sizeof(c->itemSlots[0]);
+						for (int i = 0; i < _itemLength; i++)
+						{
+							int _itemIndexInSlot = c->itemSlots[i];
+							if (_itemIndexInSlot >= 0)
+							{
+								// 어떤 스탯에 얼마를 적용할것인지.
+								c->AddValueByStatIndex(
+									static_cast<EStatInfo::Type>(_itemDatas[_itemIndexInSlot].StatType)
+									, _itemDatas[_itemIndexInSlot].AddValue);
+							}
+						}
 					}
 					const char* msg = "Game Started!";
 					broadcast(client->id, (int)ServerMessage::MSG_START_ACK, msg, strlen(msg) + 1);
@@ -314,6 +357,7 @@ void clientThread(Client* client)
 			if (client->id == gRoomOwner && header.bodyLen == sizeof(int))
 			{
 				memcpy(&gMapId, body.data(), sizeof(int));
+				CDataStorageManager::GetInst()->SetSelectedMapIndex(gMapId);
 				broadcast(0, (int)ServerMessage::MSG_PICK_MAP, &gMapId, sizeof(int));
 			}
 			break;
@@ -332,16 +376,15 @@ void clientThread(Client* client)
 		case ClientMessage::MSG_TAKE_DAMAGE:
 			if (header.bodyLen == sizeof(float))
 			{
-				float dmg;
-				memcpy(&dmg, body.data(), sizeof(float));
-				client->hp -= dmg;
+				// 맵 테이블에 의한 데이지.
+				float _damage = CDataStorageManager::GetInst()->GetSelectedMapInfo().CollisionDamage;
+				client->Damaged(_damage);
 
-				struct { int id; float hp; } packetHp{ client->id, client->hp };
+				struct { int id; float hp; } packetHp{ client->id, client->GetCurHP() };
 				broadcast(client->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &packetHp, sizeof(packetHp));
 
-				if (client->isAlive && client->hp <= 0.0f)
+				if (client->isAlive && client->GetCurHP() <= 0.0f)
 				{
-					client->hp = 0.0f;
 					client->isAlive = false;
 					gDeadPlayers.insert(client->id);
 					broadcast(client->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
@@ -373,7 +416,42 @@ void clientThread(Client* client)
 	delete client;
 }
 
-void LoadGameData();
+void LoadGameData()
+{
+	// config load
+	std::string webserverPath = WEBSERVER_PATH;
+	std::string path = webserverPath + CONFIG_PATH;
+	std::string configResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+	printf(("configResult: " + configResult).c_str());
+	CDataStorageManager::GetInst()->SetConfigData(configResult);
+
+	// characters load
+	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().CharacterFileName;
+	std::string charactersResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+	printf(("charactersResult: " + charactersResult).c_str());
+	CDataStorageManager::GetInst()->SetCharacterData(charactersResult);
+
+	// maps load
+	for (std::string mapFileName : CDataStorageManager::GetInst()->GetConfig().mapFileNameList)
+	{
+		path = webserverPath + mapFileName;
+		std::string mapResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+		printf(("mapResult: " + mapResult).c_str());
+		CDataStorageManager::GetInst()->SetMapData(mapResult);
+	}
+
+	// stat load
+	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().StatFileName;
+	std::string statsResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+	printf(("statsResult: " + statsResult).c_str());
+	CDataStorageManager::GetInst()->SetStatInfoData(charactersResult);
+
+	// item load
+	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().ItemFileName;
+	std::string itemResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
+	printf(("itemResult: " + itemResult).c_str());
+	CDataStorageManager::GetInst()->SetItemInfoData(itemResult);
+}
 
 int main()
 {
@@ -424,39 +502,3 @@ int main()
 	return 0;
 }
 
-void LoadGameData()
-{
-	// config load
-	std::string webserverPath = WEBSERVER_PATH;
-	std::string path = webserverPath + CONFIG_PATH;
-	std::string configResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
-	printf(("configResult: " + configResult).c_str());
-	CDataStorageManager::GetInst()->SetConfigData(configResult);
-
-	// characters load
-	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().CharacterFileName;
-	std::string charactersResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
-	printf(("charactersResult: " + charactersResult).c_str());
-	CDataStorageManager::GetInst()->SetCharacterData(charactersResult);
-
-	// maps load
-	for (std::string mapFileName : CDataStorageManager::GetInst()->GetConfig().mapFileNameList)
-	{
-		path = webserverPath + mapFileName;
-		std::string mapResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
-		printf(("mapResult: " + mapResult).c_str());
-		CDataStorageManager::GetInst()->SetMapData(mapResult);
-	}
-
-	// stat load
-	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().StatFileName;
-	std::string statsResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
-	printf(("statsResult: " + statsResult).c_str());
-	CDataStorageManager::GetInst()->SetStatInfoData(charactersResult);
-
-	// item load
-	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().ItemFileName;
-	std::string itemResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
-	printf(("itemResult: " + itemResult).c_str());
-	CDataStorageManager::GetInst()->SetItemInfoData(itemResult);
-}
