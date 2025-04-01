@@ -178,7 +178,7 @@ void checkGameOver()
 	int aliveCount = 0;
 	for (auto& c : gClients)
 	{
-		if (c->isAlive) 
+		if (c->isAlive)
 			aliveCount++;
 	}
 
@@ -415,14 +415,12 @@ void clientThread(Client* client)
 							}
 						}
 					}
-					const char* msg = "Game Started!";
-					broadcast(client->id, (int)ServerMessage::MSG_START_ACK, msg, strlen(msg) + 1);
+
 				}
-				else
-				{
-					const char* errorMsg = "Not all players are ready.";
-					sendMessage(client->sock, client->id, (int)ServerMessage::MSG_START_ACK, errorMsg, strlen(errorMsg) + 1);
-				}
+				
+				// 시작에 대한 결과를 알려줘야 함.
+				int readyFlag = static_cast<int>(allReady);
+				broadcast(client->id, (int)ServerMessage::MSG_START_ACK, &readyFlag, sizeof(int));
 			}
 			break;
 		case ClientMessage::MSG_READY:
@@ -481,6 +479,7 @@ void clientThread(Client* client)
 
 				if (client->isAlive && client->GetCurHP() <= 0.0f)
 				{
+					std::cout << "ClientMessage::MSG_TAKE_DAMAGE Dead id: " << client->id << "\n";
 					client->isAlive = false;
 					gDeadPlayers.insert(client->id);
 					broadcast(client->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
