@@ -329,8 +329,7 @@ void distanceUpdateLoop()
 
 			for (auto& c : gClients)
 			{
-				if (!c->isAlive) continue;
-
+				// 죽은 캐릭이라도 계속 보내야 함.
 				float _dist = c->GetPlayDistance();
 				float _height = c->height;
 				float _curHp = c->GetCurHP();
