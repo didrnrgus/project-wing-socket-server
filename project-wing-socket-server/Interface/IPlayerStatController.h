@@ -8,7 +8,7 @@
 class IPlayerStatController abstract
 {
 private:
-	int index;
+	//int index;
 	float maxHp;
 	float baseSpeed;
 	float baseDex;
@@ -42,6 +42,9 @@ private:
 		addedDex = 0.0f;
 		addedDef = 0.0f;
 
+		addedReleaseStunValue = 0.0f;
+		addedReleaseProtectionValue = 0.0f;
+
 		isStun = false;
 		isProtection = false;
 		isBoostMode = false;
@@ -56,7 +59,7 @@ public:
 		return InitStat(stat.HP, stat.Speed, stat.Dex, stat.Def);
 	}
 
-	void SetIndex(int _index) { index = _index; }
+	//void SetIndex(int _index) { index = _index; }
 	void AddValueByStatIndex(EStatInfo::Type _statIndex, float _value)
 	{
 		switch (_statIndex)
@@ -120,8 +123,14 @@ public:
 	inline void ReleaseStun(float DeltaTime)
 	{
 		addedReleaseStunValue += DeltaTime;
-		if (addedReleaseStunValue > 1.0f)
+		//std::cout 
+		//	<< " DeltaTime: " << DeltaTime
+		//	<< " addedReleaseStunValue: " << addedReleaseStunValue << "\n";
+
+		if (addedReleaseStunValue > 2.0f)
 		{
+			//std::cout
+			//	<< " addedReleaseStunValue: isStun = false;" << "\n";
 			addedReleaseStunValue = 0.0f;
 			isStun = false;
 			isProtection = true;
@@ -137,7 +146,7 @@ public:
 		}
 	}
 
-	inline int GetIndex() { return index; }
+	//inline int GetIndex() { return index; }
 	inline float GetMaxHP() { return maxHp; }
 	inline float GetCurHP() { return curHp; }
 	inline float GetSpeed() { return baseSpeed + addedSpeed; }

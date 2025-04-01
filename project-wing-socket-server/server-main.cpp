@@ -11,6 +11,10 @@
 #define SCREEN_WIDTH 1280.0f
 #define SCREEN_HEIGHT 720.0f
 
+//std::cout << "client_" << c->id
+				//	<< "  " <<
+				//	<< "\n";
+
 // 높이 가운데서부터 시작 함.
 #define PLAYER_INIT_POS_HEIGHT 0.0f
 
@@ -29,8 +33,9 @@ namespace ClientMessage
 		MSG_UNREADY,
 		MSG_MOVE_UP,
 		MSG_MOVE_DOWN,
-		MSG_PLAYER_DEAD,
-		MSG_TAKE_DAMAGE // 맵에 박았을때의 트리거
+		MSG_TAKE_DAMAGE, // 맵에 박았을때의 트리거
+		MSG_BOOST_ON,
+		MSG_BOOST_OFF
 	};
 }
 
@@ -39,24 +44,31 @@ namespace ServerMessage
 	enum Type
 	{
 		MSG_CONNECTED,
-		MSG_NEW_OWNER,
-		MSG_HEARTBEAT_ACK,
-		MSG_START_ACK,
-		MSG_JOIN,
+		MSG_ROOM_FULL_INFO,
 		MSG_DISCONNECT, // 이건 누가 나간거.
 		MSG_CONNECTED_REJECT,
-		MSG_ROOM_FULL_INFO,
-		MSG_PICK_CHARACTER,
-		MSG_PICK_ITEM,
+		MSG_NEW_OWNER,
+		MSG_JOIN,
+
 		MSG_PICK_MAP,
+		MSG_PICK_ITEM,
+		MSG_PICK_CHARACTER,
 		MSG_READY,
 		MSG_UNREADY,
-		MSG_MOVE_UP,
-		MSG_MOVE_DOWN,
+		MSG_START_ACK,
+
+		MSG_COUNTDOWN_FINISHED,
 		MSG_PLAYER_DEAD,
 		MSG_GAME_OVER,
-		MSG_PLAYER_DISTANCE, // 거리 전송 메시지
-		MSG_TAKEN_DAMAGE,
+		MSG_MOVE_UP,
+		MSG_MOVE_DOWN,
+		MSG_PLAYER_DISTANCE, // 거리 전송 메시지.
+		MSG_PLAYER_HEIGHT,
+		MSG_TAKEN_DAMAGE,	// 현재 HP 알려줌.
+		MSG_BOOST_ON,
+		MSG_BOOST_OFF,
+
+		MSG_HEARTBEAT_ACK,
 		MSG_END
 	};
 }
@@ -80,8 +92,22 @@ struct Client : public IPlayerStatController
 	bool isAlive = true;
 	bool isMovingUp = false;
 
-	int characterId = -1;
+	int characterId = 0;
 	int itemSlots[3] = { -1, -1, -1 };
+
+	float height = 0.0f;
+
+	void Init()
+	{
+		isReady = false;
+		isAlive = true;
+		isMovingUp = false;
+		characterId = 0;
+		itemSlots[0] = -1;
+		itemSlots[1] = -1;
+		itemSlots[2] = -1;
+		height = 0.0f;
+	}
 };
 
 std::recursive_mutex gMutex;
@@ -151,9 +177,16 @@ void checkGameOver()
 {
 	int aliveCount = 0;
 	for (auto& c : gClients)
-		if (c->isAlive) aliveCount++;
+	{
+		if (c->isAlive) 
+			aliveCount++;
+	}
+
 	if (aliveCount == 0)
 	{
+		for (auto& c : gClients)
+			c->Init();
+
 		gState = WAITING;
 		const char* msg = "All players dead. Game over.";
 		broadcast(0, (int)ServerMessage::MSG_GAME_OVER, msg, strlen(msg) + 1);
@@ -201,74 +234,120 @@ bool receiveMessage(SOCKET sock, MessageHeader& header, std::vector<char>& body)
 void distanceUpdateLoop()
 {
 	InitTimer();
-	float accumulated = 0.0f;
-	const float targetDelta = 1.0f / 60.0f; // 60 FPS 고정 간격
+	float broadcastAccumulated = 0.0f;
+	const float targetDelta = 1.0f / 30.0f;
+	const float countDownTime = 5.0f;
+	float curCountDownTime = 0.0f;
+	bool isFinishCountDown = false;
 
 	while (true)
 	{
-		Sleep(1); // CPU 점유율 조절용
+		Sleep(1);
 		std::lock_guard<std::recursive_mutex> lock(gMutex);
-		if (gState != RUNNING) continue;
+		float dt = UpdateTimer(); // 이번 프레임 시간
 
-		float dt = UpdateTimer();
-		accumulated += dt;
-
-		while (accumulated >= targetDelta)
+		if (gState != RUNNING)
 		{
-			accumulated -= targetDelta;
+			isFinishCountDown = false;
+			continue;
+		}
+
+		broadcastAccumulated += dt;
+
+		// 카운트다운 처리
+		if (!isFinishCountDown)
+		{
+			curCountDownTime += dt;
+
+			//std::cout
+			//	<< " curCountDownTime " << curCountDownTime
+			//	<< "\n";
+
+			if (curCountDownTime < countDownTime)
+				continue;
+			else
+			{
+				isFinishCountDown = true;
+				curCountDownTime = 0.0f;
+				broadcast(0, (int)ServerMessage::MSG_COUNTDOWN_FINISHED, nullptr, 0);
+			}
+		}
+
+		// 🧠 스탯 업데이트는 매 프레임 처리
+		for (auto& c : gClients)
+		{
+			if (!c->isAlive) continue;
+
+			if (c->GetIsProtection())
+			{
+				c->ReleaseProtection(dt);
+			}
+
+			if (c->GetIsStun())
+			{
+				c->ReleaseStun(dt);
+			}
+
+			//std::cout << "client_" << c->id
+			//	<< " c->GetIsStun(): " << c->GetIsStun() << "\n";
+
+			if (!c->GetIsStun())
+			{
+				float _height = c->GetDex() * dt * (c->isMovingUp ? 1.0f : -1.0f);
+				c->height += _height;
+
+				c->height = clamp(c->height, SCREEN_HEIGHT * -0.5f, SCREEN_HEIGHT * 0.5f);
+
+				//std::cout << "client_" << c->id
+				//	<< " c->isMovingUp: " << c->isMovingUp
+				//	<< " c->GetDex(): " << c->GetDex()
+				//	<< " dt: " << dt
+				//	<< " _height: " << _height
+				//	<< " c->height: " << c->height << "\n";
+
+				// 거리 & HP 갱신
+				float speed = c->GetSpeed();
+				float boostMultiplyValue = c->GetBoostValue();
+				float speedPerFrame = speed * dt * 0.01f * boostMultiplyValue;
+				c->AddPlayDistance(speedPerFrame);
+			}
+
+			if (!c->GetIsStun() && !c->GetIsProtection())
+			{
+#ifdef _DEBUG
+				c->DamagedPerDistance(dt * 10.0f);
+#else
+				c->DamagedPerDistance(dt);
+#endif
+			}
+		}
+
+		// 💬 60FPS 기준으로 메시지 브로드캐스트
+		while (broadcastAccumulated >= targetDelta)
+		{
+			broadcastAccumulated -= targetDelta;
 
 			for (auto& c : gClients)
 			{
 				if (!c->isAlive) continue;
 
-				if (c->GetIsProtection())
-				{
-					c->ReleaseProtection(targetDelta);
-					continue;
-				}
+				float _dist = c->GetPlayDistance();
+				float _height = c->height;
+				float _curHp = c->GetCurHP();
 
-				if (c->GetIsStun())
-				{
-					c->ReleaseStun(targetDelta);
-					continue;
-				}
+				//std::cout << "client_" << c->id
+				//	<< " _dist: " << _dist
+				//	<< " _height: " << _height
+				//	<< " _curHp: " << _curHp << "\n";
 
-				// 거리 & HP 갱신
-				float speed = c->GetSpeed();
-				float boostMultiplyValue = c->GetBoostValue();
-				float speedPerFrame =
-					speed * targetDelta		// 1초에 얼마만큼 
-					* 0.01f					// 미터법
-					* boostMultiplyValue;	// 부스트 속도 곱계산. 
-				c->AddPlayDistance(speedPerFrame);
-
-#ifdef _DEBUG
-				c->DamagedPerDistance(targetDelta * 10.0f);
-#else
-				c->DamagedPerDistance(targetDelta);
-#endif // _DEBUG
-
-				// 사망 처리
-				if (c->GetCurHP() <= 0.0f)
-				{
-					c->isAlive = false;
-					gDeadPlayers.insert(c->id);
-					broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
-					checkGameOver();
-					continue;
-				}
-
-				// 거리 브로드캐스트
-				struct { int id; float dist; } packetDist{ c->id, c->GetPlayDistance() };
-				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &packetDist, sizeof(packetDist));
-
-				// HP 브로드캐스트
-				struct { int id; float hp; } packetHp{ c->id, c->GetCurHP() };
-				broadcast(c->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &packetHp, sizeof(packetHp));
+				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &_dist, sizeof(float));
+				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_HEIGHT, &_height, sizeof(float));
+				broadcast(c->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &_curHp, sizeof(float));
 			}
 		}
 	}
 }
+
 
 
 void clientThread(Client* client)
@@ -287,10 +366,12 @@ void clientThread(Client* client)
 		case ClientMessage::MSG_START:
 			if (client->id == gRoomOwner)
 			{
-				bool allReady = std::all_of(gClients.begin(), gClients.end(), [](Client* c)
+				bool allReady = std::all_of(gClients.begin(), gClients.end(),
+					[](Client* c)
 					{
 						return (c->id == gRoomOwner) || c->isReady;
 					});
+
 				if (allReady)
 				{
 					gState = RUNNING;
@@ -302,8 +383,24 @@ void clientThread(Client* client)
 						// 스탯 계산해서 Init 하기.
 						// 테이블 읽어서 기본 스텟 초기화.
 						auto _statInfo = CDataStorageManager::GetInst()->GetCharacterState(c->characterId);
+
+						std::cout << "client_" << c->id
+							<< " _statInfo.HP: " << _statInfo.HP
+							<< " _statInfo.Speed: " << _statInfo.Speed
+							<< " _statInfo.Dex: " << _statInfo.Dex
+							<< " _statInfo.Def: " << _statInfo.Def
+							<< "\n";
+
 						c->InitStat(_statInfo);
 
+						std::cout << "client_" << c->id
+							<< " c->GetHP: " << c->GetCurHP()
+							<< " c->GetSpeed: " << c->GetSpeed()
+							<< " c->GetDex: " << c->GetDex()
+							<< " c->GetDef: " << c->GetDef()
+							<< "\n";
+
+						// 착용한 아이템 스텟에 적용.
 						auto _itemDatas = CDataStorageManager::GetInst()->GetItemInfoDatas();
 						int _itemLength = sizeof(c->itemSlots) / sizeof(c->itemSlots[0]);
 						for (int i = 0; i < _itemLength; i++)
@@ -362,16 +459,14 @@ void clientThread(Client* client)
 			}
 			break;
 		case ClientMessage::MSG_MOVE_UP:
+			client->isMovingUp = true;
 			broadcast(client->id, (int)ServerMessage::MSG_MOVE_UP, nullptr, 0);
+			//std::cout << "ClientMessage::MSG_MOVE_UP id: " << client->id << "\n";
 			break;
 		case ClientMessage::MSG_MOVE_DOWN:
+			client->isMovingUp = false;
 			broadcast(client->id, (int)ServerMessage::MSG_MOVE_DOWN, nullptr, 0);
-			break;
-		case ClientMessage::MSG_PLAYER_DEAD:
-			client->isAlive = false;
-			broadcast(client->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
-			gDeadPlayers.insert(client->id);
-			checkGameOver();
+			//std::cout << "ClientMessage::MSG_MOVE_DOWN id: " << client->id << "\n";
 			break;
 		case ClientMessage::MSG_TAKE_DAMAGE:
 			if (header.bodyLen == sizeof(float))
@@ -379,6 +474,7 @@ void clientThread(Client* client)
 				// 맵 테이블에 의한 데이지.
 				float _damage = CDataStorageManager::GetInst()->GetSelectedMapInfo().CollisionDamage;
 				client->Damaged(_damage);
+				client->SetStun();
 
 				struct { int id; float hp; } packetHp{ client->id, client->GetCurHP() };
 				broadcast(client->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &packetHp, sizeof(packetHp));
@@ -391,6 +487,14 @@ void clientThread(Client* client)
 					checkGameOver();
 				}
 			}
+			break;
+		case ClientMessage::MSG_BOOST_ON:
+			client->SetIsBoostMode(true);
+			broadcast(client->id, (int)ServerMessage::MSG_BOOST_ON, nullptr, 0);
+			break;
+		case ClientMessage::MSG_BOOST_OFF:
+			client->SetIsBoostMode(false);
+			broadcast(client->id, (int)ServerMessage::MSG_BOOST_OFF, nullptr, 0);
 			break;
 		default:
 			break;
@@ -444,7 +548,7 @@ void LoadGameData()
 	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().StatFileName;
 	std::string statsResult = CCURL::GetInst()->SendRequest(path, METHOD_GET);
 	printf(("statsResult: " + statsResult).c_str());
-	CDataStorageManager::GetInst()->SetStatInfoData(charactersResult);
+	CDataStorageManager::GetInst()->SetStatInfoData(statsResult);
 
 	// item load
 	path = webserverPath + CDataStorageManager::GetInst()->GetConfig().ItemFileName;
@@ -486,6 +590,8 @@ int main()
 		c->sock = clientSock;
 		c->id = gNextId++;
 		gClients.push_back(c);
+		c->Init();
+		std::cout << "[Server] gClients.push_back(c); " << c->id << "\n";
 		if (gRoomOwner == -1) gRoomOwner = c->id;
 		sendMessage(clientSock, c->id, (int)ServerMessage::MSG_CONNECTED, &c->id, sizeof(int));
 		sendRoomFullInfo(c);
