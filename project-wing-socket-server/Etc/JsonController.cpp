@@ -127,6 +127,8 @@ bool CJsonController::ParseJson(const nlohmann::json& json, std::map<int, FChara
 				characterState.Dex = character["dex"].get<float>();
 			if (character.contains("def"))
 				characterState.Def = character["def"].get<float>();
+			if (character.contains("stun_duration"))
+				characterState.StunDuration = character["stun_duration"].get<float>();
 
 			if (character.contains("image_sequence_name"))
 				characterState.ImageSequenceName = character["image_sequence_name"].get<std::string>();

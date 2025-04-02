@@ -65,6 +65,7 @@ namespace ServerMessage
 		MSG_PLAYER_DISTANCE, // 거리 전송 메시지.
 		MSG_PLAYER_HEIGHT,
 		MSG_TAKEN_DAMAGE,	// 현재 HP 알려줌.
+		MSG_TAKEN_STUN,
 		MSG_BOOST_ON,
 		MSG_BOOST_OFF,
 
@@ -468,17 +469,19 @@ void clientThread(Client* client)
 		case ClientMessage::MSG_TAKE_DAMAGE:
 			if (header.bodyLen == sizeof(float))
 			{
+				std::cout << "ClientMessage::MSG_TAKE_DAMAGE id: " << client->id << "\n";
 				// 맵 테이블에 의한 데이지.
 				float _damage = CDataStorageManager::GetInst()->GetSelectedMapInfo().CollisionDamage;
-				client->Damaged(_damage);
 				client->SetStun();
+				broadcast(client->id, (int)ServerMessage::MSG_TAKEN_STUN, nullptr, 0);
+				client->Damaged(_damage);
 
 				struct { int id; float hp; } packetHp{ client->id, client->GetCurHP() };
 				broadcast(client->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &packetHp, sizeof(packetHp));
 
 				if (client->isAlive && client->GetCurHP() <= 0.0f)
 				{
-					std::cout << "ClientMessage::MSG_TAKE_DAMAGE Dead id: " << client->id << "\n";
+					std::cout << "ClientMessage::MSG_TAKE_DAMAGE Dead######## id: " << client->id << "\n";
 					client->isAlive = false;
 					gDeadPlayers.insert(client->id);
 					broadcast(client->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);

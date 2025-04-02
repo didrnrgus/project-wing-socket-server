@@ -70,6 +70,7 @@ struct FMapInfo
 			"hp": 100.0,
 			"dex": 100.0,
 			"def": 10.0,
+			"stun_duration": 2.0,
 			"image_sequence_name": "PlayerIdle",
 			"size_x": 200.0,
 			"size_y": 135.0
@@ -85,6 +86,7 @@ struct FCharacterState
 	float HP;
 	float Dex;
 	float Def;
+	float StunDuration;
 	std::string ImageSequenceName;
 	float SizeX;
 	float SizeY;
