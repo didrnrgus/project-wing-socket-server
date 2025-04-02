@@ -232,7 +232,7 @@ bool receiveMessage(SOCKET sock, MessageHeader& header, std::vector<char>& body)
 	return true;
 }
 
-void distanceUpdateLoop()
+void InGameUpdateLoop()
 {
 	InitTimer();
 	float broadcastAccumulated = 0.0f;
@@ -296,7 +296,6 @@ void distanceUpdateLoop()
 			{
 				float _height = c->GetDex() * dt * (c->isMovingUp ? 1.0f : -1.0f);
 				c->height += _height;
-
 				c->height = clamp(c->height, SCREEN_HEIGHT * -0.5f, SCREEN_HEIGHT * 0.5f);
 
 				//std::cout << "client_" << c->id
@@ -320,6 +319,14 @@ void distanceUpdateLoop()
 #else
 				c->DamagedPerDistance(dt);
 #endif
+				if (c->isAlive && c->GetCurHP() <= 0.0f)
+				{
+					std::cout << "DamagedPerDistance Dead id: " << c->id << "\n";
+					c->isAlive = false;
+					gDeadPlayers.insert(c->id);
+					broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DEAD, nullptr, 0);
+					checkGameOver();
+				}
 			}
 		}
 
@@ -330,15 +337,17 @@ void distanceUpdateLoop()
 
 			for (auto& c : gClients)
 			{
+				if (!c->isAlive) continue;
+
 				// 죽은 캐릭이라도 계속 보내야 함.
 				float _dist = c->GetPlayDistance();
 				float _height = c->height;
 				float _curHp = c->GetCurHP();
 
-				//std::cout << "client_" << c->id
-				//	<< " _dist: " << _dist
-				//	<< " _height: " << _height
-				//	<< " _curHp: " << _curHp << "\n";
+				std::cout << "client_" << c->id
+					<< " _dist: " << _dist
+					<< " _height: " << _height
+					<< " _curHp: " << _curHp << "\n";
 
 				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &_dist, sizeof(float));
 				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_HEIGHT, &_height, sizeof(float));
@@ -564,7 +573,7 @@ int main()
 
 	WSADATA wsa;
 	WSAStartup(MAKEWORD(2, 2), &wsa);
-	std::thread(distanceUpdateLoop).detach();
+	std::thread(InGameUpdateLoop).detach();
 	SOCKET server = socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;

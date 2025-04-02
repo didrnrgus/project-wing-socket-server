@@ -161,18 +161,19 @@ public:
 	inline float GetBoostValue() { return isBoostMode ? 2.0f : 1.0f; }
 	inline float GetPlayDistance() { return playDistance; }
 
-public:
-	// 콜백 함수들 등록
-	template <typename T>
-	void SetPlayerFrezeCallback(T* Obj, void(T::* Func)())
-	{
-		playerFrezeCallback = std::bind(Func, Obj);
-	}
 
-	// 람다 넣으려고.
-	using T = std::function<void()>;
-	void SetPlayerFrezeCallback(T&& Func)
-	{
-		playerFrezeCallback = std::move(Func);
-	}
+//public:
+//	// 콜백 함수들 등록
+//	template <typename T>
+//	void SetPlayerFrezeCallback(T* Obj, void(T::* Func)())
+//	{
+//		playerFrezeCallback = std::bind(Func, Obj);
+//	}
+//
+//	// 람다 넣으려고.
+//	using T = std::function<void()>;
+//	void SetPlayerFrezeCallback(T&& Func)
+//	{
+//		playerFrezeCallback = std::move(Func);
+//	}
 };
