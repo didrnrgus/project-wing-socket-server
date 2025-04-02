@@ -197,7 +197,15 @@ void checkGameOver()
 void sendRoomFullInfo(Client* client)
 {
 	int playerCount = (int)gClients.size();
-	int totalSize = sizeof(int) * 2 + sizeof(int) + playerCount * (sizeof(int) + sizeof(bool) + sizeof(int) * 3);
+	int totalSize = sizeof(int)  // roomOwner
+		+ sizeof(int) // mapId
+		+ sizeof(int) // playerCount
+		+ playerCount // 인원수 곱
+		* (sizeof(int) // id
+			+ sizeof(bool)  // ready
+			+ sizeof(int)  // character
+			+ sizeof(int) * 3); // item*3
+
 	std::vector<char> buffer(totalSize);
 	char* ptr = buffer.data();
 	memcpy(ptr, &gRoomOwner, sizeof(int)); ptr += sizeof(int);
@@ -207,6 +215,7 @@ void sendRoomFullInfo(Client* client)
 	{
 		memcpy(ptr, &c->id, sizeof(int)); ptr += sizeof(int);
 		memcpy(ptr, &c->isReady, sizeof(bool)); ptr += sizeof(bool);
+		memcpy(ptr, &c->characterId, sizeof(int)); ptr += sizeof(int);
 		memcpy(ptr, c->itemSlots, sizeof(int) * 3); ptr += sizeof(int) * 3;
 	}
 	sendMessage(client->sock, 0, (int)ServerMessage::MSG_ROOM_FULL_INFO, buffer.data(), totalSize);
