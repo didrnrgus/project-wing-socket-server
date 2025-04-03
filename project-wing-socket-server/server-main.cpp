@@ -353,10 +353,10 @@ void InGameUpdateLoop()
 				float _height = c->height;
 				float _curHp = c->GetCurHP();
 
-				std::cout << "client_" << c->id
-					<< " _dist: " << _dist
-					<< " _height: " << _height
-					<< " _curHp: " << _curHp << "\n";
+				//std::cout << "client_" << c->id
+				//	<< " _dist: " << _dist
+				//	<< " _height: " << _height
+				//	<< " _curHp: " << _curHp << "\n";
 
 				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &_dist, sizeof(float));
 				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_HEIGHT, &_height, sizeof(float));
