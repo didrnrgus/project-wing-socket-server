@@ -128,6 +128,8 @@ struct Client : public IPlayerStatController
 std::recursive_mutex gMutex;
 std::vector<Client*> gClients;
 std::unordered_set<int> gDeadPlayers;
+std::map<int, Obstacle> gObstaclesByStep;
+
 GameState gState = WAITING;
 int gNextId = 1;
 int gRoomOwner = -1;
@@ -403,14 +405,23 @@ void InGameUpdateLoop()
 				c->lastObstacleStep = currentStep;
 
 				Obstacle obs;
-				obs.scale = rand() % 50 + 100.0f;
-				obs.rotation = rand() % 360;
-				obs.height = (rand() % (int)SCREEN_HEIGHT) - (SCREEN_HEIGHT * 0.5f);
 
-				std::cout << "client_" << c->id
-					<< " scale: " << obs.scale
-					<< " rotation: " << obs.rotation
-					<< " scheightale: " << obs.height << "\n";
+				if (gObstaclesByStep.count(currentStep))
+				{
+					obs = gObstaclesByStep[currentStep];
+				}
+				else
+				{
+					obs.scale = rand() % 50 + 100.0f;
+					obs.rotation = rand() % 360;
+					obs.height = (rand() % (int)SCREEN_HEIGHT) - (SCREEN_HEIGHT * 0.5f);
+					gObstaclesByStep.emplace(std::make_pair(currentStep, obs));
+				}
+
+				//std::cout << "client_" << c->id
+				//	<< " scale: " << obs.scale
+				//	<< " rotation: " << obs.rotation
+				//	<< " scheightale: " << obs.height << "\n";
 
 				// 다보낼 필요 없음.
 				sendMessage(c->sock, c->id, ServerMessage::MSG_OBSTACLE, &obs, sizeof(obs));
@@ -479,6 +490,7 @@ void clientThread(Client* client)
 				if (allReady)
 				{
 					gState = RUNNING;
+					gObstaclesByStep.clear();
 					gDeadPlayers.clear();
 					for (auto& c : gClients)
 					{
