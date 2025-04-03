@@ -204,7 +204,7 @@ void broadcast(int senderId, int msgType, const void* data, int len)
 
 void checkGameOver()
 {
- 	int aliveCount = 0;
+	int aliveCount = 0;
 
 	for (auto& c : gClients)
 	{
@@ -390,7 +390,7 @@ void InGameUpdateLoop()
 
 		for (auto& c : gClients)
 		{
-			if (!c->isAlive) 
+			if (!c->isAlive)
 				continue;
 
 			int currentStep = static_cast<int>(c->GetPlayDistance() / 16.0f);
@@ -411,7 +411,7 @@ void InGameUpdateLoop()
 					<< " scale: " << obs.scale
 					<< " rotation: " << obs.rotation
 					<< " scheightale: " << obs.height << "\n";
-				
+
 				// 다보낼 필요 없음.
 				sendMessage(c->sock, c->id, ServerMessage::MSG_OBSTACLE, &obs, sizeof(obs));
 			}
@@ -424,7 +424,7 @@ void InGameUpdateLoop()
 
 			for (auto& c : gClients)
 			{
-				if (!c->isAlive) continue;
+				//if (!c->isAlive) continue;
 
 				// 죽은 캐릭이라도 계속 보내야 함.
 				float _dist = c->GetPlayDistance();
@@ -436,9 +436,12 @@ void InGameUpdateLoop()
 				//	<< " _height: " << _height
 				//	<< " _curHp: " << _curHp << "\n";
 
-				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &_dist, sizeof(float));
-				broadcast(c->id, (int)ServerMessage::MSG_PLAYER_HEIGHT, &_height, sizeof(float));
-				broadcast(c->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &_curHp, sizeof(float));
+				if (gState == RUNNING)
+				{
+					broadcast(c->id, (int)ServerMessage::MSG_PLAYER_DISTANCE, &_dist, sizeof(float));
+					broadcast(c->id, (int)ServerMessage::MSG_PLAYER_HEIGHT, &_height, sizeof(float));
+					broadcast(c->id, (int)ServerMessage::MSG_TAKEN_DAMAGE, &_curHp, sizeof(float));
+				}
 			}
 		}
 	}

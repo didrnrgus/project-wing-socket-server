@@ -34,7 +34,7 @@ bool CJsonController::ParseJson(const nlohmann::json& json
 
 	if (json.contains("sprites") && json["sprites"].is_array())
 	{
-		for (auto jsonSpriteSheetInfo : json["sprites"])
+		for (auto& jsonSpriteSheetInfo : json["sprites"])
 		{
 			auto spriteSheetInfo = ParseJsonFSpriteSheetInfo(jsonSpriteSheetInfo);
 			spriteSheetInfosByName.insert(std::make_pair(spriteSheetInfo.Name, spriteSheetInfo));
@@ -64,7 +64,7 @@ bool CJsonController::ParseJson(const nlohmann::json& json, std::map<std::string
 
 	if (json.contains("sprites") && json["sprites"].is_array())
 	{
-		for (auto jsonSpriteSheetInfo : json["sprites"])
+		for (auto& jsonSpriteSheetInfo : json["sprites"])
 		{
 			auto spriteSheetInfo = ParseJsonFSpriteSheetInfo(jsonSpriteSheetInfo);
 			atlasInfo.Sprites.push_back(spriteSheetInfo);
@@ -80,7 +80,7 @@ bool CJsonController::ParseJson(const nlohmann::json& json, std::map<std::string
 {
 	if (json.contains("stat_type_list") && json["stat_type_list"].is_array())
 	{
-		for (auto character : json["stat_type_list"])
+		for (auto& character : json["stat_type_list"])
 		{
 			FStatInfo statInfo;
 
@@ -108,7 +108,7 @@ bool CJsonController::ParseJson(const nlohmann::json& json, std::map<int, FChara
 {
 	if (json.contains("character_list") && json["character_list"].is_array())
 	{
-		for (auto character : json["character_list"])
+		for (auto& character : json["character_list"])
 		{
 			FCharacterState characterState;
 
@@ -149,7 +149,7 @@ bool CJsonController::ParseJson(const nlohmann::json& json, std::map<int, FItemI
 {
 	if (json.contains("item_list") && json["item_list"].is_array())
 	{
-		for (auto character : json["item_list"])
+		for (auto& character : json["item_list"])
 		{
 			FItemInfo itmeInfo;
 
@@ -193,7 +193,7 @@ bool CJsonController::ParseJson(const nlohmann::json& json, FConfig& data)
 
 	if (json.contains("map_file_list") && json["map_file_list"].is_array())
 	{
-		for (auto mapFile : json["map_file_list"])
+		for (auto& mapFile : json["map_file_list"])
 		{
 			data.mapFileNameList.push_back(mapFile.get<std::string>());
 		}
@@ -237,7 +237,7 @@ bool CJsonController::ParseJson(const nlohmann::json& json, FMapInfo& data)
 
 	if (json.contains("line_node_list") && json["line_node_list"].is_array())
 	{
-		for (auto jsonLineNode : json["line_node_list"])
+		for (auto& jsonLineNode : json["line_node_list"])
 		{
 			FLineNode lineNodeInfo = ParseJsonFLineNode(jsonLineNode);
 			data.lineNodes.push_back(lineNodeInfo);

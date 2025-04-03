@@ -18,7 +18,7 @@ void CDataStorageManager::InitCurSelectedData()
 	curSelectedCharacterIndex = 0;
 	curSelectedMapIndex = 0;
 
-	for (auto e : curSelectedItemIndex)
+	for (auto& e : curSelectedItemIndex)
 	{
 		e.second = -1;
 	}
