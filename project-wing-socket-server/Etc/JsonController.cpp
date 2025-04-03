@@ -232,6 +232,9 @@ bool CJsonController::ParseJson(const nlohmann::json& json, FMapInfo& data)
 	if (json.contains("collision_damage"))
 		data.CollisionDamage = json["collision_damage"].get<float>();
 
+	if (json.contains("obstacle_interval_time"))
+		data.ObstacleIntervalTime = json["obstacle_interval_time"].get<float>();
+
 	if (json.contains("line_node_list") && json["line_node_list"].is_array())
 	{
 		for (auto jsonLineNode : json["line_node_list"])
